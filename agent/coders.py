@@ -249,10 +249,21 @@ class OllamaCoder:
             "output_tokens": out.get("eval_count", 0), "cost_usd": 0.0,
             "seconds": round(time.perf_counter() - t0, 2)})
         if out.get("done_reason") == "length":
+            self._save_debug(rid, out)
             raise RuntimeError(f"reply cut off at {self.num_predict} tokens (the model did not finish the JSON)")
         return out["message"]["content"]
 
     usage_summary = ClaudeCoder.usage_summary
+
+    def _save_debug(self, rid, out):
+        """Keep the raw reply of a failed call so the cause can be read (outputs/live/debug/)."""
+        d = config.LIVE_DIR / "debug"
+        d.mkdir(parents=True, exist_ok=True)
+        msg = out.get("message", {})
+        (d / f"{rid}.json").write_text(json.dumps({
+            "model": self.model, "done_reason": out.get("done_reason"),
+            "eval_count": out.get("eval_count"), "thinking": msg.get("thinking"),
+            "content": msg.get("content")}, indent=2))
 
     def code(self, report, feedback=None):
         rid = report["report_number"]

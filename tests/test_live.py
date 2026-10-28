@@ -233,7 +233,14 @@ class TestOllamaSafety(unittest.TestCase):
 
         api = CutOff([])
         c = OllamaCoder(model="local-test", opener=api)
-        with self.assertRaises(RuntimeError) as ctx:
-            c.code(REPORT)
+        saved = config.LIVE_DIR
+        with tempfile.TemporaryDirectory() as d:
+            config.LIVE_DIR = Path(d)
+            try:
+                with self.assertRaises(RuntimeError) as ctx:
+                    c.code(REPORT)
+                self.assertTrue((Path(d) / "debug" / "R1.json").exists())
+            finally:
+                config.LIVE_DIR = saved
         self.assertIn("cut off", str(ctx.exception))
         self.assertEqual(api.requests[0]["options"]["num_predict"], 700)
