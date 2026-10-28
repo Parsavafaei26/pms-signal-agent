@@ -218,3 +218,22 @@ class TestOllamaCoder(unittest.TestCase):
         c.num_ctx = 4000
         with self.assertRaises(RuntimeError):
             c.code(REPORT)
+
+
+class TestOllamaSafety(unittest.TestCase):
+    def test_reply_length_is_capped_and_cutoff_reported(self):
+        from agent.coders import OllamaCoder
+
+        class CutOff(SimulatedOllama):
+            def __call__(self, req, timeout=None):
+                self.requests.append(json.loads(req.data))
+                out = {"message": {"content": "{\"primary_fm\": \"FM01\",      "}, "done_reason": "length",
+                       "prompt_eval_count": 10, "eval_count": 700}
+                return Resp(json.dumps(out).encode())
+
+        api = CutOff([])
+        c = OllamaCoder(model="local-test", opener=api)
+        with self.assertRaises(RuntimeError) as ctx:
+            c.code(REPORT)
+        self.assertIn("cut off", str(ctx.exception))
+        self.assertEqual(api.requests[0]["options"]["num_predict"], 700)

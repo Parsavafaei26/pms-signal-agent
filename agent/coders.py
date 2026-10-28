@@ -197,7 +197,7 @@ class OllamaCoder:
     rules_version = config.RULES_VERSION
 
     def __init__(self, model=None, host=None, opener=urllib.request.urlopen, num_ctx=8192,
-                 timeout=900, rules_file=None, **_ignored):
+                 num_predict=700, timeout=300, rules_file=None, **_ignored):
         config.load_env()
         self.model = model or os.environ.get("OLLAMA_MODEL")
         if not self.model:
@@ -206,7 +206,11 @@ class OllamaCoder:
         if not self.host.startswith("http"):
             self.host = "http://" + self.host
         self.name = f"ollama:{self.model}"
-        self.opener, self.num_ctx, self.timeout = opener, num_ctx, timeout
+        # num_predict caps the reply length: with a forced JSON format some local models keep
+        # writing whitespace and never stop, so an uncapped call can hang for many minutes
+        self.opener, self.num_ctx, self.num_predict, self.timeout = opener, num_ctx, num_predict, timeout
+        think = os.environ.get("OLLAMA_THINK", "").strip().lower()
+        self.think = {"true": True, "false": False}.get(think)    # unset = model default
         rules = (rules_file or config.RULES_FILE).read_text()
         self.system = (INSTRUCTIONS + rules + "\n\nReply with one JSON object only, with these fields: "
                        + ", ".join(RECORD_LABEL_TOOL["input_schema"]["required"]) + ".")
@@ -219,13 +223,20 @@ class OllamaCoder:
     def _call(self, rid, messages):
         body = {"model": self.model, "stream": False, "format": self.schema,
                 "messages": [{"role": "system", "content": self.system}] + messages,
-                "options": {"temperature": 0, "seed": 42, "num_ctx": self.num_ctx}}
+                "options": {"temperature": 0, "seed": 42, "num_ctx": self.num_ctx,
+                            "num_predict": self.num_predict}}
+        if self.think is not None:
+            body["think"] = self.think
         req = urllib.request.Request(self.host + "/api/chat", data=json.dumps(body).encode(), method="POST",
                                      headers={"content-type": "application/json"})
         t0 = time.perf_counter()
         try:
             with self.opener(req, timeout=self.timeout) as resp:
                 out = json.loads(resp.read())
+        except TimeoutError:
+            raise RuntimeError(f"no reply within {self.timeout} s") from None
+        except urllib.error.HTTPError as exc:
+            raise RuntimeError(f"Ollama error {exc.code}: {exc.read()[:300]!r}") from None
         except urllib.error.URLError as exc:
             raise RuntimeError(f"Cannot reach Ollama at {self.host}: is the Ollama app running? ({exc})") from None
         n_prompt = out.get("prompt_eval_count", 0)
@@ -237,6 +248,8 @@ class OllamaCoder:
             "input_tokens": n_prompt, "cache_write_tokens": 0, "cache_read_tokens": 0,
             "output_tokens": out.get("eval_count", 0), "cost_usd": 0.0,
             "seconds": round(time.perf_counter() - t0, 2)})
+        if out.get("done_reason") == "length":
+            raise RuntimeError(f"reply cut off at {self.num_predict} tokens (the model did not finish the JSON)")
         return out["message"]["content"]
 
     usage_summary = ClaudeCoder.usage_summary

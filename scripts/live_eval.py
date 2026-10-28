@@ -26,6 +26,7 @@ import json
 import os
 import sqlite3
 import sys
+import time
 import urllib.request
 from pathlib import Path
 
@@ -98,7 +99,7 @@ def list_models(backend="anthropic"):
             print(f"{m['id']:<32} {m.get('display_name', ''):<24} {priced}")
 
 
-def run_model(model, reports, max_cost, coder_factory=ClaudeCoder):
+def run_model(model, reports, max_cost, coder_factory=ClaudeCoder, verbose=False):
     """Code the reports with one model through the normal agent loop (on a scratch database)."""
     con = sqlite3.connect(":memory:")
     con.row_factory = sqlite3.Row
@@ -108,7 +109,8 @@ def run_model(model, reports, max_cost, coder_factory=ClaudeCoder):
     if not reports:
         return {}, {}, coder, {"coded": 0, "retried": 0, "rejected": 0, "errors": 0, "routed": 0}
     agent = PMSAgent(con, coder)
-    for r in reports:
+    for k, r in enumerate(reports, 1):
+        t0 = time.perf_counter()
         try:
             label = agent.code_one(r)
         except BudgetExceeded as exc:
@@ -116,6 +118,11 @@ def run_model(model, reports, max_cost, coder_factory=ClaudeCoder):
             break
         if label is not None:
             agent.store(r, label)
+        if verbose:
+            last = con.execute("SELECT outcome, detail FROM audit_log ORDER BY rowid DESC LIMIT 1").fetchone()
+            what = f"{label['primary_fm']} {label['severity']}" if label else f"{last[0]}: {(last[1] or '')[:80]}"
+            print(f"  [{k}/{len(reports)}] {r['report_number']}  {what}  ({time.perf_counter() - t0:.1f} s)",
+                  flush=True)
     labels = {row["report_number"]: dict(row) for row in con.execute("SELECT * FROM labels")}
     attempts = {}
     for c in coder.calls:
@@ -237,7 +244,7 @@ def main():
     for m in models:
         cap = f" (cap ${a.max_cost:.2f})" if a.backend == "anthropic" else " (local, free)"
         print(f"\nCoding {len(reports)} reports with {m}{cap} ...")
-        labels, attempts, coder, stats = run_model(m, reports, a.max_cost, factory)
+        labels, attempts, coder, stats = run_model(m, reports, a.max_cost, factory, verbose=True)
         write_outputs(m, reports, labels, attempts, coder, config.LIVE_DIR)
         live = {rid: {f: evaluate.norm(f, v) for f, v in zip(
             evaluate.FIELDS, [lab["primary_fm"], lab["secondary_fm"] or "none", lab["phase"], lab["severity"],
