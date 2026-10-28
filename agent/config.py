@@ -29,3 +29,30 @@ PHASES = ["P1", "P2", "P3", "P4", "P5"]
 SEVERITIES = ["S1", "S2", "S3", "S4", "S5"]
 CONTRIBUTORS = ["DEV", "USE", "PAT", "UNK"]
 CONFIDENCE = ["high", "medium", "low"]
+
+
+# ---------------------------------------------------------------- live (API) runs
+def load_env(path=ROOT / ".env"):
+    """Read KEY=value lines from .env into the environment (existing variables win).
+    .env is in .gitignore: the API key never goes into the repository."""
+    import os
+    if not path.exists():
+        return
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
+# USD per million tokens: (input, cache write 5 min, cache read, output).
+# From the Claude API pricing page, October 2026. Check before a run; prices change.
+PRICES = {
+    "claude-haiku-5-5": (0.10, 0.125, 0.01, 0.50),
+    "claude-sonnet-5-5": (2.00, 2.50, 0.10, 10.00),
+    "claude-opus-5-5": (4.00, 5.00, 0.20, 20.00),
+}
+DEFAULT_MAX_COST = 3.00      # USD: a run stops before it spends more than this
+EST_OUTPUT_TOKENS = 350      # per call, used only for the --dry-run estimate
+LIVE_DIR = OUT_DIR / "live"

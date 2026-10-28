@@ -1,0 +1,227 @@
+"""Live evaluation: run real models on the 100 reports that were reviewed blind by hand.
+
+    python3 scripts/live_eval.py --dry-run                         # cost estimate, no key needed
+    python3 scripts/live_eval.py --list-models                     # model ids your key can use
+    python3 scripts/live_eval.py --models claude-haiku-5-5,claude-sonnet-5-5 --max-cost 3
+
+Each model codes the 100 reports through the same agent loop as a full run
+(code -> validate -> retry with feedback). Its labels are then compared with the
+blinded manual review and, for context, with the two earlier AI runs from catheter-pms-ai
+(rules v1.1 and v1.2). Tokens, cost and time are recorded for every API call.
+
+Writes to outputs/live/:
+    labels_<model>.csv      one row per report (plus attempts and status)
+    calls_<model>.csv       one row per API call (tokens, cost, seconds)
+    live_eval.md            the comparison report
+"""
+import argparse
+import csv
+import datetime as dt
+import json
+import os
+import sqlite3
+import sys
+import urllib.request
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
+from agent import config, db, evaluate, validator          # noqa: E402
+from agent.agent import PMSAgent                             # noqa: E402
+from agent.coders import BudgetExceeded, ClaudeCoder, report_text   # noqa: E402
+
+MANUAL = config.DATA_DIR / "manual_review_100.csv"
+BASELINES = {"Earlier AI run, rules v1.1": config.DATA_DIR / "baseline_labels_v1_1_100.csv",
+             "Earlier AI run, rules v1.2": config.DATA_DIR / "baseline_labels_v1_2_100.csv"}
+
+
+def review_reports():
+    """The 100 manually reviewed reports, as dicts the coder accepts."""
+    con = sqlite3.connect(":memory:")
+    con.row_factory = sqlite3.Row
+    db.init(con)
+    db.load_reports(con)
+    ids = list(evaluate.load_labels(MANUAL))
+    rows = {r["report_number"]: dict(r) for r in con.execute(
+        "SELECT * FROM reports WHERE report_number IN (%s)" % ",".join("?" * len(ids)), ids)}
+    missing = [i for i in ids if i not in rows]
+    if missing:
+        sys.exit(f"{len(missing)} reviewed reports are missing from data/maude_reports.csv")
+    return [rows[i] for i in ids]
+
+
+def estimate(models, reports):
+    """Rough cost before anything is spent: about 4 characters per token."""
+    rules_tokens = (len(config.RULES_FILE.read_text()) + 2500) / 4    # rules + instructions + tool schema
+    report_tokens = sum(len(report_text(r)) for r in reports) / 4
+    lines = [f"Reports: {len(reports)}; system prompt ~{rules_tokens:,.0f} tokens (cached after the first call); "
+             f"reports ~{report_tokens / len(reports):,.0f} tokens each on average", ""]
+    total = 0.0
+    for m in models:
+        inp, write, read, out = config.PRICES[m]
+        cost = (rules_tokens * write + (len(reports) - 1) * rules_tokens * read + report_tokens * inp
+                + len(reports) * config.EST_OUTPUT_TOKENS * out) / 1e6
+        cost *= 1.15                                                    # allowance for retries
+        total += cost
+        lines.append(f"  {m:<22} about ${cost:.2f}")
+    lines += ["", f"  Total about ${total:.2f}. A full 300-report agent run costs about 3x the per-model figure."]
+    return "\n".join(lines)
+
+
+def list_models():
+    config.load_env()
+    key = os.environ.get("ANTHROPIC_API_KEY")
+    if not key:
+        sys.exit("Put ANTHROPIC_API_KEY in .env first.")
+    req = urllib.request.Request("https://api.anthropic.com/v1/models?limit=100",
+                                 headers={"x-api-key": key, "anthropic-version": "2023-06-01"})
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        for m in json.loads(resp.read())["data"]:
+            priced = "priced" if m["id"] in config.PRICES else "no price in config"
+            print(f"{m['id']:<32} {m.get('display_name', ''):<24} {priced}")
+
+
+def run_model(model, reports, max_cost, coder_factory=ClaudeCoder):
+    """Code the reports with one model through the normal agent loop (on a scratch database)."""
+    con = sqlite3.connect(":memory:")
+    con.row_factory = sqlite3.Row
+    db.init(con)
+    db.load_reports(con)
+    coder = coder_factory(model=model, max_cost=max_cost)
+    agent = PMSAgent(con, coder)
+    for r in reports:
+        try:
+            label = agent.code_one(r)
+        except BudgetExceeded as exc:
+            agent.stats["stopped"] = str(exc)
+            break
+        if label is not None:
+            agent.store(r, label)
+    labels = {row["report_number"]: dict(row) for row in con.execute("SELECT * FROM labels")}
+    attempts = {}
+    for c in coder.calls:
+        attempts[c["report_number"]] = max(attempts.get(c["report_number"], 0), c["attempt"])
+    return labels, attempts, coder, agent.stats
+
+
+def write_outputs(model, reports, labels, attempts, coder, out_dir):
+    out_dir.mkdir(parents=True, exist_ok=True)
+    with open(out_dir / f"labels_{model}.csv", "w", newline="", encoding="utf-8") as fh:
+        w = csv.writer(fh)
+        w.writerow(["report_number"] + evaluate.FIELDS + ["confidence", "quote", "note", "attempts", "status"])
+        for r in reports:
+            rid = r["report_number"]
+            lab = labels.get(rid)
+            if lab is None:
+                status = "not coded" if rid not in attempts else "rejected or error"
+                w.writerow([rid] + [""] * (len(evaluate.FIELDS) + 3) + [attempts.get(rid, 0), status])
+                continue
+            vals = [lab["primary_fm"], lab["secondary_fm"] or "none", lab["phase"], lab["severity"],
+                    lab["contributor"], "Y" if lab["retained_fragment"] else "N",
+                    "Y" if lab["user_harm"] else "N"]
+            w.writerow([rid] + vals + [lab["confidence"], lab["quote"], lab["note"],
+                                       attempts.get(rid, 0), "coded"])
+    with open(out_dir / f"calls_{model}.csv", "w", newline="", encoding="utf-8") as fh:
+        if coder.calls:
+            w = csv.DictWriter(fh, fieldnames=list(coder.calls[0]))
+            w.writeheader()
+            w.writerows(coder.calls)
+
+
+def pct(x):
+    return f"{100 * x:.0f}%"
+
+
+def report_md(results, manual, n_reports):
+    """results: list of (name, labels_dict, stats or None, usage or None)."""
+    names = [r[0] for r in results]
+    comps = {name: evaluate.compare(manual, labels) for name, labels, *_ in results}
+    lines = ["# Live evaluation against the blinded manual review", "",
+             f"Run {dt.datetime.now():%Y-%m-%d %H:%M}. Reference: the manual review of {n_reports} reports "
+             "(coded blind, before seeing any AI label). Rules v" + config.RULES_VERSION + " for the live runs.", "",
+             "## Agreement with the manual review (exact agreement, Cohen's kappa)", "",
+             "| Field | " + " | ".join(names) + " |", "|---|" + "---|" * len(names)]
+    for f in evaluate.FIELDS:
+        lines.append(f"| {evaluate.FIELD_NAMES[f]} | " + " | ".join(
+            f"{pct(comps[n][f]['agreement'])} ({comps[n][f]['kappa']:.2f})" for n in names) + " |")
+    lines.append("| Severity within one level | " + " | ".join(pct(comps[n]["severity_within_one"]) for n in names) + " |")
+    lines.append("| All seven fields identical | " + " | ".join(pct(comps[n]["all_fields"]) for n in names) + " |")
+    lines.append("| Reports scored | " + " | ".join(str(comps[n]["n"]) for n in names) + " |")
+    live = [r for r in results if r[3] is not None]
+    if live:
+        lines += ["", "## Cost, speed and the agent loop", "",
+                  "| Model | Reports coded | Retries | Rejected | Errors | Sent to review | API calls | "
+                  "Cost (USD) | Cost per report | Seconds per call |", "|---|---|---|---|---|---|---|---|---|---|"]
+        for name, labels, stats, usage in live:
+            per = usage["cost_usd"] / max(len(labels), 1)
+            lines.append(f"| {name} | {stats['coded']} | {stats['retried']} | {stats['rejected']} | "
+                         f"{stats['errors']} | {stats['routed']} | {usage['api_calls']} | "
+                         f"{usage['cost_usd']:.3f} | {per:.4f} | {usage['mean_seconds_per_call']} |")
+            if stats.get("stopped"):
+                lines.append(f"\nRun with {name} stopped early: {stats['stopped']}")
+        lines += ["", "Token totals: " + "; ".join(
+            f"{u['model']}: {u['input_tokens']:,} input, {u['cache_read_tokens']:,} read from cache, "
+            f"{u['cache_write_tokens']:,} written to cache, {u['output_tokens']:,} output"
+            for _, _, _, u in live)]
+        lines += ["", "## Where the live models disagree with the manual review (severity and failure mode)", ""]
+        for name, labels, *_ in live:
+            for f in ("primary_fm", "severity"):
+                d = evaluate.disagreements(manual, labels, f)
+                shown = ", ".join(f"{i} ({m} vs {a})" for i, m, a in d[:15])
+                lines.append(f"- **{name}, {evaluate.FIELD_NAMES[f].lower()}** ({len(d)}): manual vs AI. {shown}"
+                             + (" ..." if len(d) > 15 else ""))
+    lines += ["", "## How to read this", "",
+              "- The manual review is one reviewer's coding, not ground truth; disagreements need reading, "
+              "not just counting.",
+              "- The earlier runs coded reports inside a chat session; the live runs use the API with fixed "
+              "settings, so they are the repeatable result.",
+              "- Kappa corrects for agreement expected by chance: above 0.80 almost perfect, 0.61-0.80 "
+              "substantial, 0.41-0.60 moderate."]
+    return "\n".join(lines) + "\n"
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--models", default="claude-haiku-5-5,claude-sonnet-5-5")
+    ap.add_argument("--max-cost", type=float, default=config.DEFAULT_MAX_COST,
+                    help="USD cap for each model (default %(default)s)")
+    ap.add_argument("--limit", type=int, help="only the first N reviewed reports (for a cheap trial)")
+    ap.add_argument("--dry-run", action="store_true", help="print the cost estimate and stop")
+    ap.add_argument("--list-models", action="store_true")
+    a = ap.parse_args()
+
+    if a.list_models:
+        return list_models()
+    models = [m.strip() for m in a.models.split(",") if m.strip()]
+    unknown = [m for m in models if m not in config.PRICES]
+    if unknown:
+        sys.exit(f"No price in config.PRICES for: {', '.join(unknown)}")
+    reports = review_reports()[:a.limit] if a.limit else review_reports()
+    print(estimate(models, reports))
+    if a.dry_run:
+        return
+
+    ids = {r["report_number"] for r in reports}
+    manual = {k: v for k, v in evaluate.load_labels(MANUAL).items() if k in ids}
+    results = [(name, {k: v for k, v in evaluate.load_labels(path).items() if k in ids}, None, None)
+               for name, path in BASELINES.items()]
+    for m in models:
+        print(f"\nCoding {len(reports)} reports with {m} (cap ${a.max_cost:.2f}) ...")
+        labels, attempts, coder, stats = run_model(m, reports, a.max_cost)
+        write_outputs(m, reports, labels, attempts, coder, config.LIVE_DIR)
+        live = {rid: {f: evaluate.norm(f, v) for f, v in zip(
+            evaluate.FIELDS, [lab["primary_fm"], lab["secondary_fm"] or "none", lab["phase"], lab["severity"],
+                              lab["contributor"], "Y" if lab["retained_fragment"] else "N",
+                              "Y" if lab["user_harm"] else "N"])} for rid, lab in labels.items()}
+        usage = coder.usage_summary()
+        print(f"  coded {stats['coded']}, retries {stats['retried']}, rejected {stats['rejected']}, "
+              f"errors {stats['errors']}; spent ${usage['cost_usd']:.3f}")
+        results.append((f"Live: {m}", live, stats, usage))
+    path = config.LIVE_DIR / "live_eval.md"
+    path.write_text(report_md(results, manual, len(reports)))
+    print(f"\nReport: {path}")
+
+
+if __name__ == "__main__":
+    main()

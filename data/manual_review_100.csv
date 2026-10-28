@@ -1,0 +1,101 @@
+report_number,primary_fm,secondary_fm,phase,severity,contributor,retained_fragment,user_harm,note
+3015060232-2025-00011,FM01,none,P5,S1,UNK,N,N,Hole in catheter confirmed on return; no clinical detail
+MW5168660,FM01,none,P3,S3,UNK,N,N,"Transverse crack at 8 cm, leak at site; PICC replaced"
+3006260740-2023-00263,FM05,none,P2,S2,UNK,N,N,Burr on microintroducer prevented skin entry; skin re-nicked; possible manufacturing cause
+3006260740-2024-01478,FM01,FM03,P3,S2,UNK,N,N,Occlusion led to removal; crack at 5 cm found on removal (flexural fatigue). Breach beats occlusion
+3006260740-2024-03410,FM01,FM11,P3,S3,USE,N,N,"External fracture, infiltration on flush, missed doses, new PICC; mfr: use related"
+3006260740-2023-02935,FM02,none,P3,S2,UNK,N,N,Leak/bleeding at valve after placement; not returned
+3006260740-2023-02893,FM05,none,P2,S1,UNK,N,N,Rough hydrophilic stylet; longer insertion only
+3006260740-2023-01125,FM02,none,P3,S2,UNK,N,N,Split on luer extension leg confirmed; catheter repaired (repair = S2)
+3006260740-2024-05734,FM05,FM11,P2,S3,DEV,N,N,Dilator tip deformed/soft; unexpected vessel bleeding; patient status unknown
+3006260740-2023-04644,FM05,none,P2,S1,UNK,N,N,Introducer damaged and stuck; replaced
+3006260740-2025-04531,FM01,FM06,P2,S2,UNK,N,N,Broviac break near hub during placement; migration reported but unconfirmed; removed
+3006260740-2025-02152,FM03,none,P3,S1,UNK,N,N,Occlusion only; no detail
+3013666218-2024-00001,FM02,none,P3,S3,UNK,N,N,"Leak at luer connection after NC change, crack on clear lumen/hub; PICC exchanged; possible over-torque"
+3006260740-2023-02877,FM12,none,P3,S3,UNK,N,N,"Blood backflow/leak, no location given; PICC replaced, treatment delayed"
+3006260740-2023-01192,FM02,none,P3,S3,DEV,N,Y,"T-lock septum dislodged, blood/saline sprayed in RN's eye (HIV+ pt); RN on antivirals; manufacturing cause"
+3006260740-2025-04441,FM01,FM06,P3,S2,UNK,N,N,"Not aspirating, tip out of SVC, fracture at 2 cm (fatigue); removed"
+3006260740-2024-01485,FM05,none,P2,S2,UNK,Y,N,"Tunneller plastic tip slipped off in tissue, removed with haemostat"
+3006260740-2024-01411,FM01,none,P4,S4,UNK,Y,N,Groshong broke on removal; remainder in vessel retrieved in angiography
+3006260740-2024-05802,FM01,none,P5,S1,USE,N,N,"Break at shaft/molded joint, tensile stress; mfr: use related"
+9680794-2025-00541,FM01,FM04,P3,S2,UNK,N,N,Kinking and rupture of 6-month PICC; flow stopped; removed with delay
+3006260740-2025-07397,FM01,FM11,P3,S2,UNK,N,N,Fluid felt under skin on flush; no breach confirmed (not returned)
+0001625425-2025-01096,FM01,none,P3,S2,UNK,N,N,Leak at sheath-to-hub connection (tube-hub joint); PICC removed
+3006260740-2024-08060,FM04,none,P3,S1,UNK,N,N,Kink near insertion site; no action reported
+MW5114748,FM07,none,P4,S2,UNK,N,N,Multiple attempts to remove; no defect reported
+9680794-2024-01001,FM01,none,P2,S1,USE,N,N,Torn catheter found during procedure; hole consistent with sharp instrument
+3006260740-2023-02803,FM01,none,P2,S1,UNK,N,N,"Broken at thin/thick juncture during placement; returned kit sealed, inconclusive"
+3006260740-2024-01497,FM05,FM07,P2,S4,UNK,Y,N,PICC would not thread/remove (venous spasm); guidewire fractured with 6 cm retained; IR retrieval
+3006260740-2025-07548,FM08,none,P1,S1,DEV,N,N,GTIN codes missing on label before use
+17912320,FM01,none,P4,S3,UNK,Y,N,Tissue cuff left in tunnel on removal; secondary procedure planned. Cuff not explicitly in FM list
+3006260740-2023-02756,FM08,none,P1,S1,DEV,N,N,Repair kit adhesive hardened before use; field recall
+1317056-2025-00002,FM02,none,P3,S3,USE,N,N,Cracked purple valve hub; replaced; over-tightened luer
+9680794-2023-00084,FM08,none,P1,S1,DEV,N,N,Kit mislabelled with wrong product code
+3006260740-2025-04528,FM01,none,P4,S4,UNK,Y,N,"Fissure in use; broke on removal, 30 cm fragment snared via femoral vein (fatigue)"
+3006260740-2024-08024,FM05,FM08,P1,S1,UNK,N,N,Microintroducer tip frayed in packaging; new introducer used
+2245270-2024-00086,FM01,none,P3,S3,UNK,N,N,"Leak under dressing, visible leak on flushing after removal; reinserted; alcohol disinfectant possible"
+3006260740-2023-06096,FM01,none,P3,S2,USE,N,N,Split in half externally at 5.5 cm; removed; mfr: use related fatigue
+3006260740-2023-06018,FM05,none,P2,S1,UNK,N,N,"Microintroducer sheath tip damaged, resistance; sheath replaced"
+3006260740-2024-01545,FM08,none,P1,S1,DEV,N,N,"Rusted trimming device in tray, found before use"
+3015060232-2023-00001,FM01,none,P3,S2,UNK,N,N,Two wall leaks on tube body; vancomycin underdosing
+3006260740-2025-04507,FM01,none,P3,S3,UNK,N,N,Crack 2 cm from wing; new PICC inserted
+3006260740-2024-01495,FM01,none,P3,S2,USE,N,N,Pinhole leak; stylet manipulation damage; removed
+3006260740-2024-05822,FM01,none,P3,S2,UNK,N,N,Split found before transfusion; treatment delayed
+3006260740-2024-05646,FM03,none,P2,S2,USE,N,N,Could not flush; stylet luer occluded with blood; catheter removed
+3006260740-2023-02890,FM01,none,P5,S1,USE,N,N,Catheter detached from connector; not passed through compression sleeve on assembly
+0001625425-2023-01114,FM02,none,P3,S3,DEV,N,N,Hub cracked at tubing change; infant lost central access; known hub-crack CAPA
+3006260740-2023-00655,FM04,FM03,P3,S3,UNK,N,N,"Kink at skin on X-ray causing occlusion; repositioned; access lost, PIVs"
+9680794-2025-00544,FM04,FM03,P3,S2,UNK,N,N,Kinked in 2 places at axilla; could not flush/aspirate; removed
+3006260740-2024-08122,FM01,FM04,P3,S1,UNK,N,N,Leak; kink with circumferential split (fatigue); no clinical detail
+3006260740-2025-04525,FM05,none,P2,S1,UNK,N,N,Microintroducer hard to peel
+9680794-2024-00329,FM05,none,P2,S1,DEV,N,N,Sheath tab broke off; mfr: manufacturing caused/contributed
+3006260740-2025-04628,FM01,none,P3,S1,UNK,N,N,Split proximal to suture wing; no intervention needed
+9680794-2024-00675,FM05,FM01,P2,S1,UNK,N,N,Could not thread; stylet bent and extending past tip (non-BOM stylet); possible inter-lumen breach; second kit used
+MW5164440,FM09,none,P3,S3,UNK,N,N,Central line infection; hospitalised
+0001625425-2023-01220,FM02,none,P3,S3,DEV,N,N,Hub cracked and leaking; infant needed PIV and new central line; known hub-crack CAPA
+3006260740-2023-00588,FM02,none,P5,S1,UNK,N,N,Crack at luer lock; no other info
+3006260740-2024-01534,FM04,FM02,P3,S3,UNK,N,N,Ballooning on extension leg; leak at clamping sleeve on test; replaced
+3006260740-2023-04484,FM08,none,P1,S1,UNK,N,N,Damaged/contaminated Tyvek packaging
+3006260740-2023-00342,FM09,none,P3,S3,UNK,N,N,Lot cluster of fever 12-24 h post insertion; admitted; PICCs removed. Infection not confirmed
+MW5168706,FM01,none,P4,S4,UNK,Y,N,Snapped on removal; fragment retrieved in cardiac cath lab (infant)
+9680794-2023-00754,FM03,none,P2,S3,UNK,N,N,Difficult to flush; replaced with delay; no defect found on return
+3006260740-2025-04483,FM12,none,P3,S2,UNK,N,N,Repair kit adhesive did not hold repair; repair kit doesn't fit categories
+3006260740-2024-08095,FM01,none,P3,S3,UNK,N,N,Fracture at 0.5-1 cm; new PICC; fatigue + compression
+3006260740-2023-01306,FM05,none,P2,S1,UNK,N,N,3CG stylet bent 90 degrees; replaced
+3006260740-2024-08011,FM08,FM05,P1,S1,DEV,N,N,Residual glue on catheter; guidewire would not pass
+3006260740-2024-03429,FM12,none,P3,S3,UNK,N,N,Leak with no location; catheter replaced
+3006260740-2024-01512,FM01,FM06,P3,S4,UNK,Y,N,"External end broke, catheter embolised fully; snare attempt broke it again; fragment left in heart/IVC"
+3006260740-2023-02885,FM02,none,P2,S2,DEV,N,N,Leaking T-lock stopper on flush with stylet; removed; manufacturing condition
+3006260740-2024-03619,FM12,FM11,P3,S3,UNK,N,N,Leak with no location; chemo extravasation; treatment delayed
+2245270-2023-00001,FM01,none,P3,S3,UNK,N,N,Broke in situ (tensile); removed whole; converted to PIV
+3006260740-2025-07484,FM01,none,P3,S2,USE,N,N,Splits distal to molded joint; blood-soaked linen; mfr: use related
+1317056-2024-00005,FM02,none,P3,S3,USE,N,N,Cracked purple valve hub; replaced; over-tightened luer
+3006260740-2025-02084,FM01,FM03,P3,S2,UNK,N,N,Positional flow issues then leak at site; split in tubing; removed
+3006260740-2024-08165,FM01,none,P3,S3,UNK,N,N,Leak at site; hole 4 cm internal (fatigue); new PICC
+3006260740-2023-04709,FM02,none,P2,S1,DEV,N,N,Connector oversleeve would not lock; out-of-spec supplier part
+3006260740-2023-00058,FM10,none,P3,S3,UNK,N,N,Catheter-related wall thrombosis; LMWH started
+3006260740-2024-01513,FM01,FM03,P3,S3,UNK,N,N,Split 4 cm from hub; distal tip occluded; new PICC
+3006260740-2025-07474,FM05,none,P2,S1,UNK,N,N,Introducer sheath tip breakage; inconclusive on return
+3006260740-2023-04433,FM01,none,P3,S3,UNK,N,N,"Whooshing in neck on flush; 3 subcutaneous cracks reported (mfr could not reproduce); new PICC, chemo delay"
+3006260740-2023-01188,FM01,none,P3,S2,UNK,N,N,Split at 4 cm under securement adhesive; found at dressing change
+3006260740-2023-04702,FM01,FM04,P3,S3,UNK,N,N,Kinked in arm; hole/split; site leak and pain; difficult re-insertion
+3006260740-2025-04365,FM01,none,P3,S2,UNK,N,N,Leak 10 cm from puncture after 6 months; removed
+9680794-2024-00042,FM05,none,P2,S1,USE,N,N,Peel-away sheath kinked; undue force
+3006260740-2023-06058,FM06,none,P3,S3,UNK,N,N,Tunnelled line fell out with minimal traction; replaced
+3006260740-2025-02148,FM08,none,P1,S1,DEV,N,N,Cuff partially detached before use
+3006260740-2024-08123,FM01,FM04,P3,S1,UNK,N,N,Leak; kink with circumferential split (fatigue); no clinical detail
+0001625425-2024-00979,FM02,none,P3,S3,DEV,N,N,Blue luer hub cracked; new PICC; mild harm; known hub-crack CAPA
+3006260740-2025-01954,FM05,none,P2,S1,UNK,N,N,Safety introducer needle came apart
+3006260740-2023-02778,FM01,none,P3,S2,UNK,N,N,Intravascular hole 5 cm from connector at 2 months
+9680794-2024-00318,FM05,none,P2,S1,DEV,N,N,Peel-away tab broke; related NCR found
+3006260740-2025-04456,FM01,FM10,P3,S3,UNK,N,N,Hole in PICC during chemo; extensive thrombosis; port placed
+3006260740-2024-03597,FM01,none,P3,S2,USE,N,N,Intravascular rupture 9-10 cm from exit (fatigue); mfr: use related
+3006260740-2023-06089,FM03,FM04,P5,S1,UNK,N,N,Occlusion; extension leg ballooned on pressurising (effect)
+3006260740-2023-01200,FM02,none,P3,S3,UNK,N,N,"Leak at hub/needleless connector, no break; exchanged for DL PICC"
+9680794-2023-00742,FM05,FM07,P4,S1,UNK,N,N,"Sheath hard to remove, tabs would not peel, tab broke"
+3006260740-2023-06025,FM01,none,P3,S2,UNK,N,N,Split at molded joint (fatigue/tensile); removed
+3015060232-2023-00006,FM01,FM03,P3,S3,UNK,N,N,Clogged; replaced; rupture 4.4 cm from wing with partial occlusion
+3006260740-2023-06092,FM01,none,P3,S2,UNK,N,N,Backflow; cracks found after removal (fatigue)
+3006260740-2023-06074,FM01,none,P3,S2,UNK,N,N,Catheter disconnected at 37 cm; trimmed (trim = S2)
+3006260740-2025-07681,FM01,none,P3,S3,UNK,N,N,Internal partial break; removed; new PICC
+3006260740-2025-01955,FM01,none,P3,S3,UNK,N,N,Broken below StatLock (pulling/torsion); discontinued; PIV

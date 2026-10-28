@@ -7,6 +7,7 @@ Every step is written to audit_log so a reviewer can reconstruct what happened.
 import datetime as dt
 import uuid
 from . import config, signals, validator
+from .coders import BudgetExceeded
 
 
 def now():
@@ -30,6 +31,8 @@ class PMSAgent:
         for attempt in range(self.max_retries + 1):
             try:
                 label = self.coder.code(report, feedback)
+            except BudgetExceeded:
+                raise                                      # stop the whole run, not just this report
             except Exception as exc:                       # network, missing label, bad response
                 self.log("code", "error", rid, str(exc)[:300])
                 self.stats["errors"] += 1
@@ -86,7 +89,12 @@ class PMSAgent:
         for i, report in enumerate(queue):
             if limit is not None and i >= limit:
                 break
-            label = self.code_one(report)
+            try:
+                label = self.code_one(report)
+            except BudgetExceeded as exc:
+                self.stats["stopped"] = str(exc)
+                self.log("run", "stopped", report["report_number"], str(exc))
+                break
             if label is not None:
                 self.store(report, label)
             self.con.commit()

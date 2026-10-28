@@ -76,7 +76,7 @@ class TestClaudeCoderRetry(unittest.TestCase):
         con = memory_db()
         add_report(con, "R1", "2024-Q1")
         api = FakeAPI([GOOD | {"secondary_fm": "FM01"}, GOOD])
-        coder = ClaudeCoder(api_key="test", model="test-model", opener=api)
+        coder = ClaudeCoder(api_key="test", model="claude-haiku-5-5", opener=api)
         agent = PMSAgent(con, coder)
         agent.run(db.uncoded_queue(con))
         self.assertEqual(agent.stats["coded"], 1)
@@ -92,7 +92,7 @@ class TestClaudeCoderRetry(unittest.TestCase):
         con = memory_db()
         add_report(con, "R1", "2024-Q1")
         bad = GOOD | {"quote": ""}
-        coder = ClaudeCoder(api_key="t", model="m", opener=FakeAPI([bad, bad, bad]))
+        coder = ClaudeCoder(api_key="t", model="claude-haiku-5-5", opener=FakeAPI([bad, bad, bad]))
         agent = PMSAgent(con, coder)
         agent.run(db.uncoded_queue(con))
         self.assertEqual(agent.stats["rejected"], 1)

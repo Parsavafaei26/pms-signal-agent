@@ -74,8 +74,10 @@ w AS (
     WHERE q.qi >= 8
 )
 SELECT quarter AS period, primary_fm AS subject, cur_n AS current_n, base_n AS baseline_n,
-       printf('share %.0f%% vs %.0f%% (%+.0f points)', 100.0*cur_n/cur_tot, 100.0*base_n/base_tot,
-              100.0*cur_n/cur_tot - 100.0*base_n/base_tot) AS detail
+       -- ROUND then CAST: SQLite versions differ in how printf('%.0f') rounds
+       printf('share %d%% vs %d%% (%+d points)', CAST(ROUND(100.0*cur_n/cur_tot) AS INTEGER),
+              CAST(ROUND(100.0*base_n/base_tot) AS INTEGER),
+              CAST(ROUND(100.0*cur_n/cur_tot - 100.0*base_n/base_tot) AS INTEGER)) AS detail
 FROM w
 WHERE cur_n >= :share_min
   AND 100.0*cur_n/cur_tot - 100.0*base_n/base_tot >= :share_points
