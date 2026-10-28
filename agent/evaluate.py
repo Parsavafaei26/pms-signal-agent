@@ -55,3 +55,20 @@ def compare(reference, test):
 def disagreements(reference, test, field):
     return [(i, reference[i][field], test[i][field])
             for i in sorted(set(reference) & set(test)) if reference[i][field] != test[i][field]]
+
+
+def needs_review(label):
+    """The review triggers that can be read from the seven coded fields (see validator.review_reasons):
+    severity S3 or worse, a retained fragment, or harm to the user."""
+    return label["severity"] in ("S3", "S4", "S5") or label["retained_fragment"] == "Y" or label["user_harm"] == "Y"
+
+
+def review_catch(reference, test, low_confidence=()):
+    """Of the reports the reference coding would send to a person, how many would the test labels
+    also send? low_confidence: report numbers the model marked low confidence (also routed)."""
+    ids = sorted(set(reference) & set(test))
+    should = [i for i in ids if needs_review(reference[i])]
+    caught = [i for i in should if needs_review(test[i]) or i in low_confidence]
+    return {"should": len(should), "caught": len(caught),
+            "missed": [i for i in should if i not in caught],
+            "routed_total": sum(needs_review(test[i]) or i in low_confidence for i in ids)}

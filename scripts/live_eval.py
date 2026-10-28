@@ -158,8 +158,9 @@ def pct(x):
     return f"{100 * x:.0f}%"
 
 
-def report_md(results, manual, n_reports):
-    """results: list of (name, labels_dict, stats or None, usage or None)."""
+def report_md(results, manual, n_reports, low_conf=None):
+    """results: list of (name, labels_dict, stats or None, usage or None).
+    low_conf: {name: report numbers the model marked low confidence} (these are routed to review)."""
     names = [r[0] for r in results]
     comps = {name: evaluate.compare(manual, labels) for name, labels, *_ in results}
     lines = ["# Live evaluation against the blinded manual review", "",
@@ -173,6 +174,18 @@ def report_md(results, manual, n_reports):
     lines.append("| Severity within one level | " + " | ".join(pct(comps[n]["severity_within_one"]) for n in names) + " |")
     lines.append("| All seven fields identical | " + " | ".join(pct(comps[n]["all_fields"]) for n in names) + " |")
     lines.append("| Reports scored | " + " | ".join(str(comps[n]["n"]) for n in names) + " |")
+    low_conf = low_conf or {}
+    catch = {name: evaluate.review_catch(manual, labels, low_conf.get(name, set()))
+             for name, labels, *_ in results}
+    lines += ["", "## Safety check: would the serious cases still reach a person?", "",
+              "Reports whose manual coding triggers human review (severity S3 or worse, a retained fragment "
+              "or harm to the user), and how many of them each model's labels would also send to review "
+              "(its own S3+, fragment, user-harm or low-confidence flags).", "",
+              "| | " + " | ".join(names) + " |", "|---|" + "---|" * len(names),
+              "| Serious cases caught | " + " | ".join(
+                  f"{catch[n]['caught']} of {catch[n]['should']} ({pct(catch[n]['caught'] / catch[n]['should'])})"
+                  if catch[n]["should"] else "-" for n in names) + " |",
+              "| Reports sent to review in total | " + " | ".join(str(catch[n]["routed_total"]) for n in names) + " |"]
     live = [r for r in results if r[3] is not None]
     if live:
         lines += ["", "## Cost, speed and the agent loop", "",
@@ -210,6 +223,45 @@ def report_md(results, manual, n_reports):
     return "\n".join(lines) + "\n"
 
 
+def rescore(live_dir=None):
+    """Rebuild the comparison report from files saved by earlier runs."""
+    live_dir = Path(live_dir or config.LIVE_DIR)
+    label_files = sorted(live_dir.glob("labels_*.csv"))
+    if not label_files:
+        sys.exit(f"No labels_*.csv in {live_dir}")
+    runs = []
+    for f in label_files:
+        model = f.stem[len("labels_"):]
+        with open(f, encoding="utf-8") as fh:
+            rows = [r for r in csv.DictReader(fh) if r["status"] == "coded"]
+        calls_f = live_dir / f"calls_{model}.csv"
+        calls = list(csv.DictReader(open(calls_f, encoding="utf-8"))) if calls_f.exists() else []
+        local = all(float(c["cost_usd"]) == 0 for c in calls)
+        name = f"{'Local' if local else 'Live'}: {model}"
+        attempts = {}
+        for c in calls:
+            attempts[c["report_number"]] = max(attempts.get(c["report_number"], 0), int(c["attempt"]))
+        n = len(calls)
+        tot = lambda k: sum(float(c[k]) for c in calls)
+        usage = {"model": model, "api_calls": n, "input_tokens": int(tot("input_tokens")),
+                 "cache_write_tokens": int(tot("cache_write_tokens")), "cache_read_tokens": int(tot("cache_read_tokens")),
+                 "output_tokens": int(tot("output_tokens")), "cost_usd": round(tot("cost_usd"), 4),
+                 "mean_seconds_per_call": round(tot("seconds") / n, 2) if n else 0}
+        labels = {r["report_number"]: {k: evaluate.norm(k, r[k]) for k in evaluate.FIELDS} for r in rows}
+        stats = {"coded": len(rows), "retried": sum(v - 1 for v in attempts.values()),
+                 "rejected": 0, "errors": len(attempts) - len(rows),
+                 "routed": sum(evaluate.needs_review(l) or r["confidence"] == "low"
+                               for l, r in zip(labels.values(), rows))}
+        runs.append((name, labels, stats, usage, {r["report_number"] for r in rows if r["confidence"] == "low"}))
+    ids = set().union(*(set(r[1]) for r in runs))
+    manual = {k: v for k, v in evaluate.load_labels(MANUAL).items() if k in ids}
+    results = [(name, {k: v for k, v in evaluate.load_labels(path).items() if k in ids}, None, None)
+               for name, path in BASELINES.items()] + [r[:4] for r in runs]
+    path = live_dir / "live_eval.md"
+    path.write_text(report_md(results, manual, len(manual), {r[0]: r[4] for r in runs}))
+    print(f"Report: {path}")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--backend", choices=["anthropic", "ollama"], default="anthropic",
@@ -220,10 +272,14 @@ def main():
     ap.add_argument("--limit", type=int, help="only the first N reviewed reports (for a cheap trial)")
     ap.add_argument("--dry-run", action="store_true", help="print the cost estimate and stop")
     ap.add_argument("--list-models", action="store_true")
+    ap.add_argument("--rescore", action="store_true",
+                    help="rebuild live_eval.md from the saved labels_*.csv and calls_*.csv (no model calls)")
     a = ap.parse_args()
 
     if a.list_models:
         return list_models(a.backend)
+    if a.rescore:
+        return rescore()
     if not a.models and a.backend == "ollama":
         sys.exit("Name the local model: --models <name>  (see --list-models)")
     models = [m.strip() for m in (a.models or "claude-haiku-5-5,claude-sonnet-5-5").split(",") if m.strip()]
@@ -241,6 +297,7 @@ def main():
     manual = {k: v for k, v in evaluate.load_labels(MANUAL).items() if k in ids}
     results = [(name, {k: v for k, v in evaluate.load_labels(path).items() if k in ids}, None, None)
                for name, path in BASELINES.items()]
+    low_conf = {}
     for m in models:
         cap = f" (cap ${a.max_cost:.2f})" if a.backend == "anthropic" else " (local, free)"
         print(f"\nCoding {len(reports)} reports with {m}{cap} ...")
@@ -250,13 +307,15 @@ def main():
             evaluate.FIELDS, [lab["primary_fm"], lab["secondary_fm"] or "none", lab["phase"], lab["severity"],
                               lab["contributor"], "Y" if lab["retained_fragment"] else "N",
                               "Y" if lab["user_harm"] else "N"])} for rid, lab in labels.items()}
+        low_conf[f"{'Live' if a.backend == 'anthropic' else 'Local'}: {m}"] = {
+            rid for rid, lab in labels.items() if lab["confidence"] == "low"}
         usage = coder.usage_summary()
         print(f"  coded {stats['coded']}, retries {stats['retried']}, rejected {stats['rejected']}, "
               f"errors {stats['errors']}; spent ${usage['cost_usd']:.3f}")
         prefix = "Live" if a.backend == "anthropic" else "Local"
         results.append((f"{prefix}: {m}", live, stats, usage))
     path = config.LIVE_DIR / "live_eval.md"
-    path.write_text(report_md(results, manual, len(reports)))
+    path.write_text(report_md(results, manual, len(reports), low_conf))
     print(f"\nReport: {path}")
 
 

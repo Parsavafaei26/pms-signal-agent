@@ -2,6 +2,7 @@
 
     python3 -m unittest -v
 """
+import csv
 import io
 import json
 import os
@@ -271,3 +272,34 @@ class TestOllamaThinking(unittest.TestCase):
         self.assertEqual(label["primary_fm"], "FM01")
         self.assertEqual(api.requests[0], "rejected")
         self.assertNotIn("think", api.requests[1])
+
+
+class TestReviewCatch(unittest.TestCase):
+    def test_serious_cases_missed_are_counted(self):
+        base = {f: "N" for f in ("retained_fragment", "user_harm")}
+        ref = {"A": base | {"severity": "S3"}, "B": base | {"severity": "S1"}, "C": base | {"severity": "S4"}}
+        test = {"A": base | {"severity": "S2"}, "B": base | {"severity": "S1"}, "C": base | {"severity": "S3"}}
+        out = evaluate.review_catch(ref, test)
+        self.assertEqual((out["should"], out["caught"], out["missed"]), (2, 1, ["A"]))
+        self.assertEqual(evaluate.review_catch(ref, test, {"A"})["caught"], 2)
+
+    def test_rescore_rebuilds_report_from_saved_files(self):
+        manual = evaluate.load_labels(live_eval.MANUAL)
+        with tempfile.TemporaryDirectory() as d:
+            ids = sorted(manual)[:10]
+            with open(Path(d) / "labels_local-x.csv", "w", newline="") as fh:
+                w = csv.writer(fh)
+                w.writerow(["report_number"] + evaluate.FIELDS + ["confidence", "quote", "note", "attempts", "status"])
+                for i in ids:
+                    w.writerow([i] + [manual[i][f] for f in evaluate.FIELDS] + ["medium", "q", "n", 1, "coded"])
+            with open(Path(d) / "calls_local-x.csv", "w", newline="") as fh:
+                w = csv.writer(fh)
+                w.writerow(["report_number", "model", "attempt", "input_tokens", "cache_write_tokens",
+                            "cache_read_tokens", "output_tokens", "cost_usd", "seconds"])
+                for i in ids:
+                    w.writerow([i, "local-x", 1, 100, 0, 0, 20, 0.0, 1.5])
+            live_eval.rescore(d)
+            md = (Path(d) / "live_eval.md").read_text()
+        self.assertIn("| Primary failure mode | ", md)
+        self.assertIn("Local: local-x", md)
+        self.assertIn("100% (1.00) |\n", md.split("Primary failure mode")[1].split("\n")[0] + "\n")
