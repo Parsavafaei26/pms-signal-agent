@@ -157,3 +157,64 @@ class TestLiveEvalEndToEnd(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SimulatedOllama:
+    """Stands in for Ollama's /api/chat: returns JSON text plus token counts."""
+    def __init__(self, labels):
+        self.labels, self.requests = list(labels), []
+
+    def __call__(self, req, timeout=None):
+        body = json.loads(req.data)
+        self.requests.append(body)
+        out = {"message": {"role": "assistant", "content": json.dumps(self.labels.pop(0))},
+               "prompt_eval_count": 4000, "eval_count": 150}
+        return Resp(json.dumps(out).encode())
+
+
+class TestOllamaCoder(unittest.TestCase):
+    def make(self, api):
+        from agent.coders import OllamaCoder
+        return OllamaCoder(model="local-test", host="http://localhost:11434", opener=api)
+
+    def test_request_uses_schema_temperature_zero_and_full_context(self):
+        api = SimulatedOllama([GOOD])
+        label = self.make(api).code(REPORT)
+        body = api.requests[0]
+        self.assertEqual(label["primary_fm"], "FM01")
+        self.assertEqual(body["format"]["required"][0], "primary_fm")
+        self.assertEqual(body["options"]["temperature"], 0)
+        self.assertGreaterEqual(body["options"]["num_ctx"], 8192)
+        self.assertEqual(body["messages"][0]["role"], "system")
+        self.assertFalse(body["stream"])
+
+    def test_retry_sends_validator_errors_back(self):
+        from agent.agent import PMSAgent
+        from agent import db
+        import sqlite3
+        con = sqlite3.connect(":memory:")
+        con.row_factory = sqlite3.Row
+        db.init(con)
+        con.execute("INSERT INTO reports VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    ("R1", "20240101", "2024-Q1", "Malfunction", "PICC", "M", "LJS", "", "", "t", "", 1, 1))
+        api = SimulatedOllama([GOOD | {"quote": ""}, GOOD])
+        agent = PMSAgent(con, self.make(api))
+        agent.run(db.uncoded_queue(con))
+        self.assertEqual((agent.stats["coded"], agent.stats["retried"]), (1, 1))
+        last = api.requests[1]["messages"][-1]
+        self.assertEqual(last["role"], "user")
+        self.assertIn("quote is required", last["content"])
+        self.assertEqual(api.requests[1]["messages"][-2]["role"], "assistant")
+
+    def test_usage_is_free_and_logged(self):
+        c = self.make(SimulatedOllama([GOOD]))
+        c.code(REPORT)
+        s = c.usage_summary()
+        self.assertEqual((s["api_calls"], s["input_tokens"], s["output_tokens"], s["cost_usd"]), (1, 4000, 150, 0))
+
+    def test_truncated_context_is_an_error(self):
+        api = SimulatedOllama([GOOD])
+        c = self.make(api)
+        c.num_ctx = 4000
+        with self.assertRaises(RuntimeError):
+            c.code(REPORT)

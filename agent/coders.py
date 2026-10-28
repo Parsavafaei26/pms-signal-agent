@@ -180,3 +180,89 @@ class ClaudeCoder:
         label["complaint_group"] = rid      # grouping repeat reports is a separate, human step
         label["voided"] = False
         return label
+
+
+INSTRUCTIONS = ("You code medical device adverse event reports for post-market surveillance. "
+                "Apply these coding rules exactly. Base every answer on the report text; "
+                "FDA problem codes are hints only. Never decide reportability.\n\n")
+
+
+class OllamaCoder:
+    """Free local coder: an open-source model running on this computer through Ollama.
+
+    Nothing leaves the computer and there is no cost. Ollama's structured outputs force the reply
+    into the same JSON schema as the Claude tool call, so the validator, retry loop and scoring are
+    unchanged. Temperature 0 and a fixed seed make runs repeatable.
+    """
+    rules_version = config.RULES_VERSION
+
+    def __init__(self, model=None, host=None, opener=urllib.request.urlopen, num_ctx=8192,
+                 timeout=900, rules_file=None, **_ignored):
+        config.load_env()
+        self.model = model or os.environ.get("OLLAMA_MODEL")
+        if not self.model:
+            raise RuntimeError("Choose a local model: --model <name> or OLLAMA_MODEL in .env")
+        self.host = (host or os.environ.get("OLLAMA_HOST") or "http://localhost:11434").rstrip("/")
+        if not self.host.startswith("http"):
+            self.host = "http://" + self.host
+        self.name = f"ollama:{self.model}"
+        self.opener, self.num_ctx, self.timeout = opener, num_ctx, timeout
+        rules = (rules_file or config.RULES_FILE).read_text()
+        self.system = (INSTRUCTIONS + rules + "\n\nReply with one JSON object only, with these fields: "
+                       + ", ".join(RECORD_LABEL_TOOL["input_schema"]["required"]) + ".")
+        self.schema = RECORD_LABEL_TOOL["input_schema"]
+        self._messages = {}
+        self.calls = []
+        self.spent = 0.0
+        self.max_cost = float("inf")
+
+    def _call(self, rid, messages):
+        body = {"model": self.model, "stream": False, "format": self.schema,
+                "messages": [{"role": "system", "content": self.system}] + messages,
+                "options": {"temperature": 0, "seed": 42, "num_ctx": self.num_ctx}}
+        req = urllib.request.Request(self.host + "/api/chat", data=json.dumps(body).encode(), method="POST",
+                                     headers={"content-type": "application/json"})
+        t0 = time.perf_counter()
+        try:
+            with self.opener(req, timeout=self.timeout) as resp:
+                out = json.loads(resp.read())
+        except urllib.error.URLError as exc:
+            raise RuntimeError(f"Cannot reach Ollama at {self.host}: is the Ollama app running? ({exc})") from None
+        n_prompt = out.get("prompt_eval_count", 0)
+        if n_prompt >= self.num_ctx:
+            raise RuntimeError(f"prompt of {n_prompt} tokens filled the {self.num_ctx}-token context: "
+                               "raise num_ctx, or the rules may have been cut off")
+        self.calls.append({
+            "report_number": rid, "model": self.model, "attempt": len(messages) // 2 + 1,
+            "input_tokens": n_prompt, "cache_write_tokens": 0, "cache_read_tokens": 0,
+            "output_tokens": out.get("eval_count", 0), "cost_usd": 0.0,
+            "seconds": round(time.perf_counter() - t0, 2)})
+        return out["message"]["content"]
+
+    usage_summary = ClaudeCoder.usage_summary
+
+    def code(self, report, feedback=None):
+        rid = report["report_number"]
+        if feedback is None:
+            messages = [{"role": "user", "content": report_text(report)}]
+        else:
+            messages = self._messages[rid]
+            messages.append({"role": "user", "content": "The label was rejected by the validator:\n- "
+                             + "\n- ".join(feedback) + "\nRe-read the rules and reply with a corrected label."})
+        content = self._call(rid, messages)
+        messages.append({"role": "assistant", "content": content})
+        self._messages[rid] = messages
+        try:
+            label = json.loads(content)
+        except json.JSONDecodeError:
+            raise RuntimeError(f"model reply was not valid JSON: {content[:200]!r}") from None
+        label["complaint_group"] = rid
+        label["voided"] = False
+        return label
+
+
+def list_ollama_models(host=None, opener=urllib.request.urlopen):
+    config.load_env()
+    host = (host or os.environ.get("OLLAMA_HOST") or "http://localhost:11434").rstrip("/")
+    with opener(host + "/api/tags", timeout=10) as resp:
+        return [m["name"] for m in json.loads(resp.read()).get("models", [])]

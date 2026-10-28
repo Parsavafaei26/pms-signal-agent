@@ -44,13 +44,13 @@ flowchart LR
 | Part | File | What it does |
 |---|---|---|
 | Database | `sql/schema.sql`, `sql/seed.sql` | Reports, labels, controlled vocabularies, review queue, signals, audit log; a `complaints` view removes voided and repeat reports |
-| Coder | `agent/coders.py` | `ClaudeCoder` calls the Anthropic Messages API with a forced `record_label` tool so answers come back as structured fields; `ReplayCoder` replays the validated labels from project 1 |
+| Coder | `agent/coders.py` | `ClaudeCoder` calls the Anthropic Messages API with a forced `record_label` tool so answers come back as structured fields; `OllamaCoder` runs a free open-source model on the same computer, with the same schema enforced through structured outputs; `ReplayCoder` replays the labels from project 1 |
 | Validator | `agent/validator.py` | Rejects values outside the rules, a secondary code equal to the primary, a missing supporting quote, and FM08 outside P1/P2; decides what a person must review |
 | Agent loop | `agent/agent.py` | Code, validate, retry with feedback, store, route, then run signal checks; every step written to `audit_log` |
 | Signal checks | `sql/signals.sql` | Rising failure mode (rolling 4 quarters vs previous 4), component keyword clusters, serious events, exploratory share shift |
 | Report | `agent/report.py` | Review queue CSV and a draft signal report with a sign-off block |
 | Live evaluation | `scripts/live_eval.py`, `agent/evaluate.py` | Runs real models on the 100 manually reviewed reports and scores them (agreement, Cohen's kappa) next to the earlier AI runs; records tokens, cost and time per call |
-| Tests | `tests/test_agent.py`, `tests/test_live.py` | 21 tests, including the retry loop, cost tracking, the spending cap and rate-limit retries against a simulated API |
+| Tests | `tests/test_agent.py`, `tests/test_live.py` | 25 tests, including the retry loop, cost tracking, the spending cap, rate-limit retries and the local-model path, against simulated APIs |
 
 **Design choices for a regulated setting:** the orchestration is fixed code, not left to the model,
 so every run is repeatable and auditable. The model only makes the coding decision, inside a
@@ -67,24 +67,42 @@ python3 -m unittest -v            # tests
 python3 scripts/run_questions.py  # example SQL questions -> docs/sql_results.md
 ```
 
-## Live run with a real model (built and tested; waiting for API credit)
+## Live run with a real model (built and tested; not yet run)
 
-The live path is ready to run. It needs an Anthropic API key with credit (paid per use, separate
-from a Claude subscription).
+The live path can use a free open-source model on your own computer or the paid Anthropic API.
+Either way there are two steps.
+
+**Step 1** compares models on the 100 reports that were coded by hand without
+seeing any AI label, using the same agreement measures as project 1, and puts them next to the two
+earlier AI runs (rules v1.1 and v1.2). **Step 2** runs the whole agent on all 300 reports with the
+better model; its signal report and review queue are written to `outputs/live/`, next to the
+replay outputs, so the two runs can be compared.
+
+### Free option: an open-source model on your own computer
+
+[Ollama](https://ollama.com) runs open-source models locally, so nothing is paid and no report text
+leaves the computer (relevant for confidential complaint data). The reply is forced into the same
+JSON schema, at temperature 0 with a fixed seed, so the validator, retries and scoring are identical.
+
+```
+ollama pull <model>                                              # once, from ollama.com/library
+python3 scripts/live_eval.py --backend ollama --list-models
+python3 scripts/live_eval.py --backend ollama --models <model> --limit 5    # quick trial
+python3 scripts/live_eval.py --backend ollama --models <model>              # the 100 reviewed reports
+python3 run.py --coder ollama --model <model>                               # full run on all 300
+```
+
+### Paid API option
+
+Needs an Anthropic API key with credit (paid per use, separate from a Claude subscription).
 
 ```
 cp .env.example .env              # then paste the key into .env (.env is git-ignored)
 python3 scripts/live_eval.py --list-models    # confirm the model ids your key can use
 python3 scripts/live_eval.py --dry-run        # cost estimate, nothing is spent
-python3 scripts/live_eval.py                  # step 1: two models on the 100 reviewed reports
+python3 scripts/live_eval.py                  # step 1: Haiku and Sonnet on the 100 reviewed reports
 python3 run.py --coder claude --model <better model>   # step 2: full agent run on all 300
 ```
-
-**Step 1** compares a small and a large model on the 100 reports that were coded by hand without
-seeing any AI label, using the same agreement measures as project 1, and puts them next to the two
-earlier AI runs (rules v1.1 and v1.2). **Step 2** runs the whole agent on all 300 reports with the
-better model; its signal report and review queue are written to `outputs/live/`, next to the
-replay outputs, so the two runs can be compared.
 
 **Cost controls:** the coding rules are sent with prompt caching, so after the first call they are
 read from cache at a tenth of the input price; every call's tokens and cost are logged; and each run

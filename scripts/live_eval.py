@@ -4,6 +4,11 @@
     python3 scripts/live_eval.py --list-models                     # model ids your key can use
     python3 scripts/live_eval.py --models claude-haiku-5-5,claude-sonnet-5-5 --max-cost 3
 
+Free, on this computer (needs the Ollama app and a downloaded model):
+    python3 scripts/live_eval.py --backend ollama --list-models
+    python3 scripts/live_eval.py --backend ollama --models <model> --limit 5    # quick trial
+    python3 scripts/live_eval.py --backend ollama --models <model>
+
 Each model codes the 100 reports through the same agent loop as a full run
 (code -> validate -> retry with feedback). Its labels are then compared with the
 blinded manual review and, for context, with the two earlier AI runs from catheter-pms-ai
@@ -29,7 +34,8 @@ sys.path.insert(0, str(ROOT))
 
 from agent import config, db, evaluate, validator          # noqa: E402
 from agent.agent import PMSAgent                             # noqa: E402
-from agent.coders import BudgetExceeded, ClaudeCoder, report_text   # noqa: E402
+from agent.coders import (BudgetExceeded, ClaudeCoder, OllamaCoder, list_ollama_models,  # noqa: E402
+                          report_text)
 
 MANUAL = config.DATA_DIR / "manual_review_100.csv"
 BASELINES = {"Earlier AI run, rules v1.1": config.DATA_DIR / "baseline_labels_v1_1_100.csv",
@@ -51,12 +57,15 @@ def review_reports():
     return [rows[i] for i in ids]
 
 
-def estimate(models, reports):
+def estimate(models, reports, backend="anthropic"):
     """Rough cost before anything is spent: about 4 characters per token."""
     rules_tokens = (len(config.RULES_FILE.read_text()) + 2500) / 4    # rules + instructions + tool schema
     report_tokens = sum(len(report_text(r)) for r in reports) / 4
     lines = [f"Reports: {len(reports)}; system prompt ~{rules_tokens:,.0f} tokens (cached after the first call); "
              f"reports ~{report_tokens / len(reports):,.0f} tokens each on average", ""]
+    if backend == "ollama":
+        return "\n".join(lines + [f"  {m}: free (runs on this computer); expect roughly 5-30 seconds per report"
+                                    for m in models])
     total = 0.0
     for m in models:
         inp, write, read, out = config.PRICES[m]
@@ -69,8 +78,15 @@ def estimate(models, reports):
     return "\n".join(lines)
 
 
-def list_models():
+def list_models(backend="anthropic"):
     config.load_env()
+    if backend == "ollama":
+        try:
+            names = list_ollama_models()
+        except OSError as exc:
+            sys.exit(f"Cannot reach Ollama: is the Ollama app running? ({exc})")
+        print("\n".join(names) if names else "No models downloaded yet: run  ollama pull <model>")
+        return
     key = os.environ.get("ANTHROPIC_API_KEY")
     if not key:
         sys.exit("Put ANTHROPIC_API_KEY in .env first.")
@@ -89,6 +105,8 @@ def run_model(model, reports, max_cost, coder_factory=ClaudeCoder):
     db.init(con)
     db.load_reports(con)
     coder = coder_factory(model=model, max_cost=max_cost)
+    if not reports:
+        return {}, {}, coder, {"coded": 0, "retried": 0, "rejected": 0, "errors": 0, "routed": 0}
     agent = PMSAgent(con, coder)
     for r in reports:
         try:
@@ -155,16 +173,18 @@ def report_md(results, manual, n_reports):
                   "Cost (USD) | Cost per report | Seconds per call |", "|---|---|---|---|---|---|---|---|---|---|"]
         for name, labels, stats, usage in live:
             per = usage["cost_usd"] / max(len(labels), 1)
+            cost, per_s = ((f"{usage['cost_usd']:.3f}", f"{per:.4f}") if not name.startswith("Local")
+                           else ("0 (local)", "0"))
             lines.append(f"| {name} | {stats['coded']} | {stats['retried']} | {stats['rejected']} | "
                          f"{stats['errors']} | {stats['routed']} | {usage['api_calls']} | "
-                         f"{usage['cost_usd']:.3f} | {per:.4f} | {usage['mean_seconds_per_call']} |")
+                         f"{cost} | {per_s} | {usage['mean_seconds_per_call']} |")
             if stats.get("stopped"):
                 lines.append(f"\nRun with {name} stopped early: {stats['stopped']}")
         lines += ["", "Token totals: " + "; ".join(
             f"{u['model']}: {u['input_tokens']:,} input, {u['cache_read_tokens']:,} read from cache, "
             f"{u['cache_write_tokens']:,} written to cache, {u['output_tokens']:,} output"
             for _, _, _, u in live)]
-        lines += ["", "## Where the live models disagree with the manual review (severity and failure mode)", ""]
+        lines += ["", "## Where the new runs disagree with the manual review (severity and failure mode)", ""]
         for name, labels, *_ in live:
             for f in ("primary_fm", "severity"):
                 d = evaluate.disagreements(manual, labels, f)
@@ -174,8 +194,10 @@ def report_md(results, manual, n_reports):
     lines += ["", "## How to read this", "",
               "- The manual review is one reviewer's coding, not ground truth; disagreements need reading, "
               "not just counting.",
-              "- The earlier runs coded reports inside a chat session; the live runs use the API with fixed "
-              "settings, so they are the repeatable result.",
+              "- The earlier runs coded reports inside a chat session; the new runs use fixed settings "
+              "(temperature 0 for local models), so they are the repeatable result.",
+              "- Local token counts are prompt tokens Ollama actually processed; text it reused from the "
+              "previous call is not counted again.",
               "- Kappa corrects for agreement expected by chance: above 0.80 almost perfect, 0.61-0.80 "
               "substantial, 0.41-0.60 moderate."]
     return "\n".join(lines) + "\n"
@@ -183,7 +205,9 @@ def report_md(results, manual, n_reports):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--models", default="claude-haiku-5-5,claude-sonnet-5-5")
+    ap.add_argument("--backend", choices=["anthropic", "ollama"], default="anthropic",
+                    help="anthropic = paid API; ollama = free local model on this computer")
+    ap.add_argument("--models", help="comma-separated model ids (default: Haiku and Sonnet for anthropic)")
     ap.add_argument("--max-cost", type=float, default=config.DEFAULT_MAX_COST,
                     help="USD cap for each model (default %(default)s)")
     ap.add_argument("--limit", type=int, help="only the first N reviewed reports (for a cheap trial)")
@@ -192,13 +216,17 @@ def main():
     a = ap.parse_args()
 
     if a.list_models:
-        return list_models()
-    models = [m.strip() for m in a.models.split(",") if m.strip()]
-    unknown = [m for m in models if m not in config.PRICES]
-    if unknown:
-        sys.exit(f"No price in config.PRICES for: {', '.join(unknown)}")
+        return list_models(a.backend)
+    if not a.models and a.backend == "ollama":
+        sys.exit("Name the local model: --models <name>  (see --list-models)")
+    models = [m.strip() for m in (a.models or "claude-haiku-5-5,claude-sonnet-5-5").split(",") if m.strip()]
+    if a.backend == "anthropic":
+        unknown = [m for m in models if m not in config.PRICES]
+        if unknown:
+            sys.exit(f"No price in config.PRICES for: {', '.join(unknown)}")
+    factory = ClaudeCoder if a.backend == "anthropic" else OllamaCoder
     reports = review_reports()[:a.limit] if a.limit else review_reports()
-    print(estimate(models, reports))
+    print(estimate(models, reports, a.backend))
     if a.dry_run:
         return
 
@@ -207,8 +235,9 @@ def main():
     results = [(name, {k: v for k, v in evaluate.load_labels(path).items() if k in ids}, None, None)
                for name, path in BASELINES.items()]
     for m in models:
-        print(f"\nCoding {len(reports)} reports with {m} (cap ${a.max_cost:.2f}) ...")
-        labels, attempts, coder, stats = run_model(m, reports, a.max_cost)
+        cap = f" (cap ${a.max_cost:.2f})" if a.backend == "anthropic" else " (local, free)"
+        print(f"\nCoding {len(reports)} reports with {m}{cap} ...")
+        labels, attempts, coder, stats = run_model(m, reports, a.max_cost, factory)
         write_outputs(m, reports, labels, attempts, coder, config.LIVE_DIR)
         live = {rid: {f: evaluate.norm(f, v) for f, v in zip(
             evaluate.FIELDS, [lab["primary_fm"], lab["secondary_fm"] or "none", lab["phase"], lab["severity"],
@@ -217,7 +246,8 @@ def main():
         usage = coder.usage_summary()
         print(f"  coded {stats['coded']}, retries {stats['retried']}, rejected {stats['rejected']}, "
               f"errors {stats['errors']}; spent ${usage['cost_usd']:.3f}")
-        results.append((f"Live: {m}", live, stats, usage))
+        prefix = "Live" if a.backend == "anthropic" else "Local"
+        results.append((f"{prefix}: {m}", live, stats, usage))
     path = config.LIVE_DIR / "live_eval.md"
     path.write_text(report_md(results, manual, len(reports)))
     print(f"\nReport: {path}")

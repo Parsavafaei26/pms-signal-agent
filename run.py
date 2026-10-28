@@ -3,6 +3,7 @@
     python3 run.py                       # fresh database, replay coder, full run
     python3 run.py --coder claude        # live coder (needs ANTHROPIC_API_KEY and ANTHROPIC_MODEL, e.g. in .env)
     python3 run.py --coder claude --model claude-haiku-5-5 --max-cost 2
+    python3 run.py --coder ollama --model <local model>   # free, on this computer via Ollama
     python3 run.py --limit 10            # code only the first 10 queued reports
 """
 import argparse
@@ -10,12 +11,12 @@ import csv
 import json
 from agent import config, db, report
 from agent.agent import PMSAgent
-from agent.coders import ClaudeCoder, ReplayCoder
+from agent.coders import ClaudeCoder, OllamaCoder, ReplayCoder
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--coder", choices=["replay", "claude"], default="replay")
+    ap.add_argument("--coder", choices=["replay", "claude", "ollama"], default="replay")
     ap.add_argument("--model", help="live model id (default: ANTHROPIC_MODEL)")
     ap.add_argument("--max-cost", type=float, default=config.DEFAULT_MAX_COST,
                     help="USD cap for a live run (default %(default)s)")
@@ -28,7 +29,9 @@ def main():
     con = db.connect()
     db.init(con)
     n = db.load_reports(con)
-    coder = ReplayCoder() if a.coder == "replay" else ClaudeCoder(model=a.model, max_cost=a.max_cost)
+    coder = {"replay": lambda: ReplayCoder(),
+             "claude": lambda: ClaudeCoder(model=a.model, max_cost=a.max_cost),
+             "ollama": lambda: OllamaCoder(model=a.model)}[a.coder]()
     agent = PMSAgent(con, coder)
     queue = db.uncoded_queue(con)
     print(f"Loaded {n} reports; {len(queue)} in the coding queue; coder {coder.name}")
@@ -43,7 +46,7 @@ def main():
     print(f"Report: {path.relative_to(config.ROOT)}")
     if agent.stats.get("stopped"):
         print(f"Stopped early: {agent.stats['stopped']}")
-    if isinstance(coder, ClaudeCoder):
+    if isinstance(coder, (ClaudeCoder, OllamaCoder)):
         config.LIVE_DIR.mkdir(parents=True, exist_ok=True)
         usage = coder.usage_summary() | {"run_id": agent.run_id, "stats": agent.stats}
         (config.LIVE_DIR / "full_run_usage.json").write_text(json.dumps(usage, indent=2))
@@ -52,7 +55,8 @@ def main():
                 w = csv.DictWriter(fh, fieldnames=list(coder.calls[0]))
                 w.writeheader()
                 w.writerows(coder.calls)
-        print(f"Live usage: {usage['api_calls']} API calls, ${usage['cost_usd']:.3f} "
+        print(f"Live usage: {usage['api_calls']} model calls, ${usage['cost_usd']:.3f}, "
+              f"{usage['mean_seconds_per_call']} s per call "
               f"(details in outputs/live/full_run_usage.json)")
 
 
