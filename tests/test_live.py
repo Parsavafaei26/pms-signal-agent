@@ -149,6 +149,7 @@ class TestLiveEvalEndToEnd(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             live_eval.write_outputs("claude-haiku-5-5", reports, labels, attempts, c, Path(d))
             self.assertTrue((Path(d) / "labels_claude-haiku-5-5.csv").exists())
+            self.assertEqual(live_eval.safe_name("granite4.2:8b"), "granite4.2-8b")
             scored = evaluate.load_labels(Path(d) / "labels_claude-haiku-5-5.csv")
         comp = evaluate.compare(manual, scored)
         self.assertAlmostEqual(comp["primary_fm"]["agreement"], 0.5)

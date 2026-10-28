@@ -1,6 +1,6 @@
 # Live evaluation against the blinded manual review
 
-Run 2026-10-28 21:40. Reference: the manual review of 100 reports (coded blind, before seeing any AI label). Rules v1.2 for the live runs.
+Run 2026-10-28 21:41. Reference: the manual review of 100 reports (coded blind, before seeing any AI label). Rules v1.2 for the live runs.
 
 ## Agreement with the manual review (exact agreement, Cohen's kappa)
 

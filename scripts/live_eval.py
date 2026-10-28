@@ -130,8 +130,14 @@ def run_model(model, reports, max_cost, coder_factory=ClaudeCoder, verbose=False
     return labels, attempts, coder, agent.stats
 
 
+def safe_name(model):
+    """Model ids such as granite4.2:8b contain ':', which Windows does not allow in file names."""
+    return "".join(c if c.isalnum() or c in "-._" else "-" for c in model)
+
+
 def write_outputs(model, reports, labels, attempts, coder, out_dir):
     out_dir.mkdir(parents=True, exist_ok=True)
+    model = safe_name(model)
     with open(out_dir / f"labels_{model}.csv", "w", newline="", encoding="utf-8") as fh:
         w = csv.writer(fh)
         w.writerow(["report_number"] + evaluate.FIELDS + ["confidence", "quote", "note", "attempts", "status"])
@@ -231,11 +237,12 @@ def rescore(live_dir=None):
         sys.exit(f"No labels_*.csv in {live_dir}")
     runs = []
     for f in label_files:
-        model = f.stem[len("labels_"):]
+        stem = f.stem[len("labels_"):]
         with open(f, encoding="utf-8") as fh:
             rows = [r for r in csv.DictReader(fh) if r["status"] == "coded"]
-        calls_f = live_dir / f"calls_{model}.csv"
+        calls_f = live_dir / f"calls_{stem}.csv"
         calls = list(csv.DictReader(open(calls_f, encoding="utf-8"))) if calls_f.exists() else []
+        model = calls[0]["model"] if calls else stem          # the real id, e.g. granite4.2:8b
         local = all(float(c["cost_usd"]) == 0 for c in calls)
         name = f"{'Local' if local else 'Live'}: {model}"
         attempts = {}
