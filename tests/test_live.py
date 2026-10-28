@@ -244,3 +244,30 @@ class TestOllamaSafety(unittest.TestCase):
                 config.LIVE_DIR = saved
         self.assertIn("cut off", str(ctx.exception))
         self.assertEqual(api.requests[0]["options"]["num_predict"], 700)
+
+
+class TestOllamaThinking(unittest.TestCase):
+    def test_thinking_off_by_default_and_fields_explained(self):
+        from agent.coders import OllamaCoder
+        api = SimulatedOllama([GOOD])
+        OllamaCoder(model="local-test", opener=api).code(REPORT)
+        body = api.requests[0]
+        self.assertIs(body["think"], False)
+        self.assertIn("- note: one short sentence", body["messages"][0]["content"])
+
+    def test_models_without_thinking_switch_are_retried_without_it(self):
+        from agent.coders import OllamaCoder
+
+        class NoThink(SimulatedOllama):
+            def __call__(self, req, timeout=None):
+                if "think" in json.loads(req.data):
+                    self.requests.append("rejected")
+                    raise urllib.error.HTTPError(req.full_url, 400, "bad", {},
+                                                 io.BytesIO(b'{"error":"model does not support thinking"}'))
+                return super().__call__(req, timeout)
+
+        api = NoThink([GOOD])
+        label = OllamaCoder(model="local-test", opener=api).code(REPORT)
+        self.assertEqual(label["primary_fm"], "FM01")
+        self.assertEqual(api.requests[0], "rejected")
+        self.assertNotIn("think", api.requests[1])

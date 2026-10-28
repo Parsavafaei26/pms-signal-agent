@@ -182,6 +182,19 @@ class ClaudeCoder:
         return label
 
 
+FIELD_HELP = {
+    "primary_fm": "main failure mode code, FM01-FM13",
+    "secondary_fm": "second failure mode code, or none",
+    "phase": "phase of use code, P1-P5",
+    "severity": "harm severity code, S1-S5",
+    "contributor": "likely contributor: DEV, USE, PAT or UNK",
+    "retained_fragment": "Y or N",
+    "user_harm": "Y or N (harm to the healthcare worker using the device)",
+    "confidence": "high, medium or low",
+    "quote": "a short quote (under 25 words) copied from the report that supports the primary code",
+    "note": "one short sentence giving the key reason for the codes",
+}
+
 INSTRUCTIONS = ("You code medical device adverse event reports for post-market surveillance. "
                 "Apply these coding rules exactly. Base every answer on the report text; "
                 "FDA problem codes are hints only. Never decide reportability.\n\n")
@@ -209,11 +222,13 @@ class OllamaCoder:
         # num_predict caps the reply length: with a forced JSON format some local models keep
         # writing whitespace and never stop, so an uncapped call can hang for many minutes
         self.opener, self.num_ctx, self.num_predict, self.timeout = opener, num_ctx, num_predict, timeout
-        think = os.environ.get("OLLAMA_THINK", "").strip().lower()
-        self.think = {"true": True, "false": False}.get(think)    # unset = model default
+        # Hidden reasoning ("thinking") is off by default: on a laptop it can use the whole reply
+        # budget before the answer is written. OLLAMA_THINK=true in .env turns it back on.
+        self.think = os.environ.get("OLLAMA_THINK", "false").strip().lower() == "true"
+        self._send_think = True        # dropped automatically for models without a thinking switch
         rules = (rules_file or config.RULES_FILE).read_text()
-        self.system = (INSTRUCTIONS + rules + "\n\nReply with one JSON object only, with these fields: "
-                       + ", ".join(RECORD_LABEL_TOOL["input_schema"]["required"]) + ".")
+        self.system = (INSTRUCTIONS + rules + "\n\nReply with one JSON object only, with these fields:\n"
+                       + "\n".join(f"- {k}: {FIELD_HELP[k]}" for k in RECORD_LABEL_TOOL["input_schema"]["required"]))
         self.schema = RECORD_LABEL_TOOL["input_schema"]
         self._messages = {}
         self.calls = []
@@ -225,7 +240,7 @@ class OllamaCoder:
                 "messages": [{"role": "system", "content": self.system}] + messages,
                 "options": {"temperature": 0, "seed": 42, "num_ctx": self.num_ctx,
                             "num_predict": self.num_predict}}
-        if self.think is not None:
+        if self._send_think:
             body["think"] = self.think
         req = urllib.request.Request(self.host + "/api/chat", data=json.dumps(body).encode(), method="POST",
                                      headers={"content-type": "application/json"})
@@ -236,7 +251,11 @@ class OllamaCoder:
         except TimeoutError:
             raise RuntimeError(f"no reply within {self.timeout} s") from None
         except urllib.error.HTTPError as exc:
-            raise RuntimeError(f"Ollama error {exc.code}: {exc.read()[:300]!r}") from None
+            detail = exc.read()[:300]
+            if self._send_think and b"think" in detail.lower():
+                self._send_think = False           # this model has no thinking switch: ask again without it
+                return self._call(rid, messages)
+            raise RuntimeError(f"Ollama error {exc.code}: {detail!r}") from None
         except urllib.error.URLError as exc:
             raise RuntimeError(f"Cannot reach Ollama at {self.host}: is the Ollama app running? ({exc})") from None
         n_prompt = out.get("prompt_eval_count", 0)
