@@ -50,7 +50,7 @@ flowchart LR
 | Signal checks | `sql/signals.sql` | Rising failure mode (rolling 4 quarters vs previous 4), component keyword clusters, serious events, exploratory share shift |
 | Report | `agent/report.py` | Review queue CSV and a draft signal report with a sign-off block |
 | Live evaluation | `scripts/live_eval.py`, `agent/evaluate.py` | Runs real models on the 100 manually reviewed reports and scores them (agreement, Cohen's kappa) next to the earlier AI runs; records tokens, cost and time per call |
-| Tests | `tests/test_agent.py`, `tests/test_live.py` | 25 tests, including the retry loop, cost tracking, the spending cap, rate-limit retries and the local-model path, against simulated APIs |
+| Tests | `tests/test_agent.py`, `tests/test_live.py` | 30 tests, including the retry loop, cost tracking, the spending cap, rate-limit retries and the local-model path, against simulated APIs |
 
 **Design choices for a regulated setting:** the orchestration is fixed code, not left to the model,
 so every run is repeatable and auditable. The model only makes the coding decision, inside a
@@ -67,7 +67,43 @@ python3 -m unittest -v            # tests
 python3 scripts/run_questions.py  # example SQL questions -> docs/sql_results.md
 ```
 
-## Live run with a real model (built and tested; not yet run)
+## Live run with a real model
+
+### Result: a free local model on a laptop (granite4.2:8b, 28 October 2026)
+
+The agent coded the 100 manually reviewed reports live with an 8-billion-parameter open-source
+model running on a MacBook Pro (M3 Pro, 18 GB) through Ollama: about 10 seconds per report, no cost,
+no report text leaving the computer, and no validator retries or errors.
+Full report: [outputs/live/live_eval.md](outputs/live/live_eval.md).
+
+| Agreement with the blinded manual review | Earlier run, large model, rules v1.2 | Local 8B model, rules v1.2 |
+|---|---|---|
+| Primary failure mode | 92% (kappa 0.89) | 76% (kappa 0.67) |
+| Phase of use | 96% (0.93) | 82% (0.69) |
+| Severity | 85% (0.78) | 39% (0.14) |
+| Likely contributor | 88% (0.75) | 23% (0.00) |
+| Serious cases that would still reach a person | 34 of 40 | **12 of 40** |
+
+What this shows:
+
+- **The small model can sort reports by failure type reasonably well, but it cannot be trusted with
+  severity or triage.** It put 77% of reports at the middle severity (S2) and named the device as
+  the cause in 78% of reports, where the manual review said "unknown" for most. Its kappa for
+  contributor is zero: no better than chance.
+- **The safety net would fail.** Of the 40 reports that the manual coding sends to human review
+  (S3 or worse, a retained fragment, or harm to a user), the small model's labels would route only 12.
+  Its own confidence did not help: it marked 90% of its answers "medium", including the misses.
+- **So model choice is a validated decision, not a default.** A local model keeps data private and
+  costs nothing, but here it would only be acceptable as a first sort with every report checked by a
+  person. The agent's design (validator, human review queue, audit log) is what makes such a
+  weakness visible instead of silent.
+- **Clear rules matter as much as the model.** The earlier large-model run caught 13 of 40 serious
+  cases under rules v1.1 and 34 of 40 after the severity rule was clarified in v1.2.
+- **A setup lesson:** the first local trial produced no answers, because the model spent its whole
+  reply budget on hidden reasoning. Replies are now length-capped, cut-offs are logged per report,
+  and hidden reasoning is off by default.
+
+### How to run it
 
 The live path can use a free open-source model on your own computer or the paid Anthropic API.
 Either way there are two steps.
@@ -112,9 +148,11 @@ Results go to `outputs/live/`.
 
 ## Honest limits
 
-- **The published results come from replay mode.** The labels being replayed were produced by
-  Claude in project 1 and compared with the manual review there. The live path is implemented and
-  tested against a simulated API, but has not yet been run with a real key.
+- **The signal results above come from replay mode** (labels from project 1). The live path has
+  been run on the 100 reviewed reports with a free local model (results above); the full 300-report
+  live run and the paid API comparison have not been run yet.
+- The live comparison uses one local model at temperature 0 on one machine; another model or
+  prompt could score differently.
 - The manual review is one reviewer's coding, so it is a reference, not ground truth.
 - The keyword watchlist terms were chosen after the project 1 review, so the cluster check
   confirms a known cluster rather than discovering it blind. In practice the watchlist would come
